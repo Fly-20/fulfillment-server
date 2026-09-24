@@ -35,6 +35,9 @@ type WhopAddress = {
   first_name?: string | null;
   last_name?: string | null;
 
+  line1?: string | null;
+  line2?: string | null;
+
   line_1?: string | null;
   line_2?: string | null;
 
@@ -181,6 +184,41 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   const paymentId = payment.id;
   const productId = payment.product?.id;
 
+if (!productId) {
+  return new Response("Missing Whop product ID", {
+    status: 400,
+  });
+}
+
+let variantId =
+  WHOP_PRODUCT_TO_SHOPIFY_VARIANT[productId];
+
+const allowFakeProduct =
+  process.env.DEV_ALLOW_FAKE_PRODUCT === "true";
+
+if (!variantId) {
+  if (
+    allowFakeProduct &&
+    productId === "prod_xxxxxxxxxxxxxx"
+  ) {
+    variantId =
+      "gid://shopify/ProductVariant/53233261052185";
+  } else {
+    console.log("Ignoring unmapped Whop product", {
+      productId,
+      paymentId,
+    });
+
+    return Response.json({
+      success: true,
+      ignored: true,
+      reason: "Whop product is not mapped to Shopify",
+      whopPaymentId: paymentId,
+      productId,
+    });
+  }
+}
+
   let email = payment.user?.email;
   let shippingAddress = payment.shipping_address;
 
@@ -230,18 +268,6 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
       shopifyOrderName:
         existingOrder.shopifyOrderName,
-    });
-  }
-
-  /**
-   * -------------------------------------------------------
-   * 6. Validate product
-   * -------------------------------------------------------
-   */
-
-  if (!productId) {
-    return new Response("Missing Whop product ID", {
-      status: 400,
     });
   }
 
@@ -351,82 +377,33 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       country_code: "GB",
     };
   }
-
-  /**
-   * -------------------------------------------------------
-   * 9. Map Whop product → Shopify variant
-   * -------------------------------------------------------
-   */
-
-  let variantId =
-    WHOP_PRODUCT_TO_SHOPIFY_VARIANT[productId];
-
-  /**
-   * Whop's generated test webhook uses a synthetic:
-   *
-   * prod_xxxxxxxxxxxxxx
-   *
-   * so during development we allow a fallback Shopify
-   * variant.
-   */
-
-  if (!variantId) {
-    const allowFakeProduct =
-      process.env.DEV_ALLOW_FAKE_PRODUCT === "true";
-
-    if (!allowFakeProduct) {
-      console.error(
-        "No Shopify variant mapping for Whop product:",
-        {
-          productId,
-          paymentId,
-        },
-      );
-
-      return new Response("Product mapping not found", {
-        status: 400,
-      });
-    }
-
-    console.warn(
-      "DEV MODE: Whop test product has no mapping. Using fallback Shopify variant.",
-      {
-        productId,
-        paymentId,
-      },
-    );
-
-    /**
-     * DEV STORE ONLY
-     *
-     * Change this if required to a known variant from
-     * extensibility-test1.
-     */
-    variantId =
-        "gid://shopify/ProductVariant/53233261052185";
-  }
-
   /**
    * -------------------------------------------------------
    * 10. Prepare customer/address details
    * -------------------------------------------------------
    */
 
-  const { firstName, lastName } =
-    splitName(payment.user?.name);
+  const customerName =
+  shippingAddress.name ??
+  payment.user?.name;
+
+const { firstName, lastName } =
+  splitName(customerName);
 
   const countryCode =
     shippingAddress.country_code ??
     shippingAddress.country;
 
   const address1 =
-    shippingAddress.line_1 ??
-    shippingAddress.address_line_1;
+  shippingAddress.line1 ??
+  shippingAddress.line_1 ??
+  shippingAddress.address_line_1;
 
   const address2 =
-    shippingAddress.line_2 ??
-    shippingAddress.address_line_2 ??
-    undefined;
+  shippingAddress.line2 ??
+  shippingAddress.line_2 ??
+  shippingAddress.address_line_2 ??
+  undefined;
 
   const zip =
     shippingAddress.postal_code ??
