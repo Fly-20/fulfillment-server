@@ -403,7 +403,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
      * extensibility-test1.
      */
     variantId =
-      "gid://shopify/ProductVariant/48038664601916";
+        "gid://shopify/ProductVariant/53233261052185";
   }
 
   /**

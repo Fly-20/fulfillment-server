@@ -5,7 +5,7 @@ import { authenticate } from "../shopify.server";
 import { createPaidShopifyOrder } from "../lib/shopify-orders.server";
 
 const TEST_VARIANT_ID =
-  "gid://shopify/ProductVariant/48038664601916";
+  "gid://shopify/ProductVariant/53233261052185";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   await authenticate.admin(request);
