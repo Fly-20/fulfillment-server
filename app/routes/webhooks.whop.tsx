@@ -27,6 +27,12 @@ const WHOP_PRODUCT_TO_SHOPIFY_VARIANT: Record<string, string> = {
 
   prod_luTDrVUgegPyK:
     "gid://shopify/ProductVariant/53233268195609",
+
+  prod_jXQSPmVwsPjpT:
+    "gid://shopify/ProductVariant/53254290407705",
+
+  prod_QnsmSye55sTuc:
+    "gid://shopify/ProductVariant/53254298435865",
 };
 
 type WhopAddress = {
