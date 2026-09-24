@@ -23,10 +23,10 @@ import {
  */
 const WHOP_PRODUCT_TO_SHOPIFY_VARIANT: Record<string, string> = {
   prod_FeczPt3Ztejl3:
-    "gid://shopify/ProductVariant/49485501825320",
+    "gid://shopify/ProductVariant/53233261052185",
 
   prod_luTDrVUgegPyK:
-    "gid://shopify/ProductVariant/47243127882024",
+    "gid://shopify/ProductVariant/53233268195609",
 };
 
 type WhopAddress = {
