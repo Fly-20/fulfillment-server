@@ -2,7 +2,7 @@
 
 client_id = "7c3a939ee9056a93e456baa9bbe08221"
 name = "renaar"
-application_url = "https://renaar.vercel.app"
+application_url = "https://renaar.site"
 embedded = true
 
 [build]
@@ -19,4 +19,4 @@ optional_scopes = [ ]
 use_legacy_install_flow = false
 
 [auth]
-redirect_urls = [ ]
+redirect_urls = [ "https://renaar.site/auth/callback" ]
