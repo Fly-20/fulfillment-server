@@ -524,9 +524,7 @@ const shippingLastName =
      */
     const result = await createPaidShopifyOrder({
       admin,
-
       variantId,
-
       email,
 
       firstName: shippingFirstName,
@@ -557,9 +555,9 @@ const shippingLastName =
       },
 
       quantity: 1,
-
-      whopPaymentId:
-        paymentId,
+      whopPaymentId: paymentId,
+      whopTotal: payment.total,
+      whopCurrency: payment.currency,
     });
 
     /**
