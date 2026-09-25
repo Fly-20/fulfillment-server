@@ -73,6 +73,7 @@ type WhopPaymentSucceededData = {
   total?: number | null;
   billing_reason?: string | null;
   needs_tracking?: boolean | null;
+  metadata?: Record<string, string | null | undefined> | null;
 
   product?: {
     id?: string | null;
@@ -275,6 +276,60 @@ if (!variantId) {
 
   let email = payment.user?.email;
   let shippingAddress = payment.shipping_address;
+
+  if (!shippingAddress) {
+  const metadata = payment.metadata;
+
+  const metadataAddress1 =
+    metadata?.ship_line1;
+
+  const metadataCity =
+    metadata?.ship_city;
+
+  const metadataPostalCode =
+    metadata?.ship_postal_code;
+
+  const metadataCountry =
+    metadata?.ship_country;
+
+  if (
+    metadataAddress1 &&
+    metadataCity &&
+    metadataPostalCode &&
+    metadataCountry
+  ) {
+    shippingAddress = {
+      name:
+        metadata?.ship_name ?? null,
+
+      line1:
+        metadataAddress1,
+
+      line2:
+        metadata?.ship_line2 ?? null,
+
+      city:
+        metadataCity,
+
+      state:
+        metadata?.ship_state ?? null,
+
+      postal_code:
+        metadataPostalCode,
+
+      country:
+        metadataCountry,
+    };
+
+    console.log(
+      "Using Whop metadata shipping address",
+      {
+        paymentId,
+        productId,
+      },
+    );
+  }
+}
 
   /**
    * -------------------------------------------------------
