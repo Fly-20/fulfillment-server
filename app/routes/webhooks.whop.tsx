@@ -35,6 +35,10 @@ const WHOP_PRODUCT_TO_SHOPIFY_VARIANT: Record<string, string> = {
     "gid://shopify/ProductVariant/53254298435865",
 };
 
+const NON_FULFILLMENT_PRODUCT_IDS = new Set([
+  "prod_zBOchvRUw2J7v", // The Workshop
+]);
+
 type WhopAddress = {
   name?: string | null;
 
@@ -67,6 +71,8 @@ type WhopPaymentSucceededData = {
 
   currency?: string | null;
   total?: number | null;
+  billing_reason?: string | null;
+  needs_tracking?: boolean | null;
 
   product?: {
     id?: string | null;
@@ -186,13 +192,55 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   const payment = event.data;
-
   const paymentId = payment.id;
   const productId = payment.product?.id;
+
+  if (!paymentId) {
+  return new Response("Missing Whop payment ID", {
+    status: 400,
+  });
+}
 
 if (!productId) {
   return new Response("Missing Whop product ID", {
     status: 400,
+  });
+}
+
+  if (
+  productId === "prod_FeczPt3Ztejl3" &&
+  payment.billing_reason === "subscription_cycle" &&
+  payment.needs_tracking === false &&
+  payment.shipping_address == null
+) {
+  console.log("Ignoring recurring digital Whop payment", {
+    paymentId,
+    productId,
+    billingReason: payment.billing_reason,
+    needsTracking: payment.needs_tracking,
+  });
+
+  return Response.json({
+    success: true,
+    ignored: true,
+    reason: "Recurring digital subscription payment does not require Shopify fulfilment",
+    whopPaymentId: paymentId,
+    productId,
+  });
+}
+
+if (NON_FULFILLMENT_PRODUCT_IDS.has(productId)) {
+  console.log("Ignoring non-fulfilment Whop product", {
+    paymentId,
+    productId,
+  });
+
+  return Response.json({
+    success: true,
+    ignored: true,
+    reason: "Whop product does not require Shopify fulfilment",
+    whopPaymentId: paymentId,
+    productId,
   });
 }
 
@@ -227,18 +275,6 @@ if (!variantId) {
 
   let email = payment.user?.email;
   let shippingAddress = payment.shipping_address;
-
-  /**
-   * -------------------------------------------------------
-   * 4. Validate payment ID first
-   * -------------------------------------------------------
-   */
-
-  if (!paymentId) {
-    return new Response("Missing Whop payment ID", {
-      status: 400,
-    });
-  }
 
   /**
    * -------------------------------------------------------
@@ -396,6 +432,14 @@ if (!variantId) {
 const { firstName, lastName } =
   splitName(customerName);
 
+  const shippingFirstName =
+  shippingAddress.first_name ??
+  firstName;
+
+const shippingLastName =
+  shippingAddress.last_name ??
+  lastName;
+
   const countryCode =
     shippingAddress.country_code ??
     shippingAddress.country;
@@ -485,17 +529,12 @@ const { firstName, lastName } =
 
       email,
 
-      firstName,
-      lastName,
+      firstName: shippingFirstName,
+      lastName: shippingLastName,
 
       shippingAddress: {
-        firstName:
-          shippingAddress.first_name ??
-          firstName,
-
-        lastName:
-          shippingAddress.last_name ??
-          lastName,
+        firstName: shippingFirstName,
+        lastName: shippingLastName,
 
         address1,
 
