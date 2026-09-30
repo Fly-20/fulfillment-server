@@ -57,6 +57,20 @@ export async function markWhopOrderCompleted({
   });
 }
 
+export async function retryWhopOrderRecord(
+  whopPaymentId: string,
+) {
+  return db.whopShopifyOrder.update({
+    where: {
+      whopPaymentId,
+    },
+
+    data: {
+      status: "PROCESSING",
+    },
+  });
+}
+
 export async function markWhopOrderFailed(
   whopPaymentId: string,
 ) {

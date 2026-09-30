@@ -9,6 +9,7 @@ import {
   findWhopOrderByPaymentId,
   markWhopOrderCompleted,
   markWhopOrderFailed,
+  retryWhopOrderRecord,
 } from "../lib/whop-orders.server";
 
 /**
@@ -76,13 +77,21 @@ type WhopPaymentSucceededData = {
   metadata?: Record<string, string | null | undefined> | null;
 
   product?: {
-    id?: string | null;
-    title?: string | null;
-  } | null;
+  id?: string | null;
+  title?: string | null;
+  metadata?: Record<
+    string,
+    string | null | undefined
+  > | null;
+} | null;
 
   plan?: {
-    id?: string | null;
-  } | null;
+  id?: string | null;
+  metadata?: Record<
+    string,
+    string | null | undefined
+  > | null;
+} | null;
 
   user?: {
     id?: string | null;
@@ -107,6 +116,45 @@ type WhopWebhookEvent = {
   type: string;
   data: WhopPaymentSucceededData;
 };
+
+function extractQuantityFromMetadata(
+  metadata?: Record<string, string | null | undefined> | null,
+) {
+  const main = metadata?.main;
+
+  if (!main) {
+    return undefined;
+  }
+
+  const match = main.match(/^print-(\d+)$/);
+
+  if (!match) {
+    return undefined;
+  }
+
+  const quantity = Number(match[1]);
+
+  if (
+    !Number.isInteger(quantity) ||
+    quantity < 1
+  ) {
+    return undefined;
+  }
+
+  return quantity;
+}
+
+function isLikelyValidEmail(
+  email?: string | null,
+) {
+  if (!email) {
+    return false;
+  }
+
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+    email.trim(),
+  );
+}
 
 function splitName(fullName?: string | null) {
   const value = fullName?.trim() || "";
@@ -274,7 +322,21 @@ if (!variantId) {
   }
 }
 
-  let email = payment.user?.email;
+  let email: string | undefined =
+    payment.user?.email?.trim() || undefined;
+
+  if (!isLikelyValidEmail(email)) {
+    console.warn(
+      "Whop customer email is invalid; creating Shopify order without email",
+      {
+        paymentId,
+        email,
+      },
+    );
+
+    email = undefined;
+  }
+
   let shippingAddress = payment.shipping_address;
 
   if (!shippingAddress) {
@@ -343,56 +405,46 @@ if (!variantId) {
   const existingOrder =
     await findWhopOrderByPaymentId(paymentId);
 
-  if (existingOrder) {
-    console.log("Whop payment already processed:", {
-      paymentId,
-      status: existingOrder.status,
-      shopifyOrderId: existingOrder.shopifyOrderId,
-      shopifyOrderName: existingOrder.shopifyOrderName,
-    });
-
+  if (
+    existingOrder?.status === "COMPLETED" &&
+    existingOrder.shopifyOrderId
+  ) {
     return Response.json({
       success: true,
       duplicate: true,
       message: "Payment already processed",
-
       whopPaymentId: paymentId,
-
       status: existingOrder.status,
-
       shopifyOrderId:
         existingOrder.shopifyOrderId,
-
       shopifyOrderName:
         existingOrder.shopifyOrderName,
     });
   }
+
+  if (existingOrder?.status === "PROCESSING") {
+    return Response.json(
+      {
+        success: false,
+        processing: true,
+        message:
+          "Payment is already being processed",
+        whopPaymentId: paymentId,
+      },
+      {
+        status: 409,
+      },
+    );
+  }
+
+  const isRetry =
+    existingOrder?.status === "FAILED";
 
   /**
    * -------------------------------------------------------
    * 7. Customer email
    * -------------------------------------------------------
    */
-
-  if (!email) {
-    const allowFakeCustomer =
-      process.env.DEV_ALLOW_FAKE_CUSTOMER === "true";
-
-    if (!allowFakeCustomer) {
-      return new Response("Missing customer email", {
-        status: 400,
-      });
-    }
-
-    console.warn(
-      "DEV MODE: Whop test event has no customer email. Using test email.",
-      {
-        paymentId,
-      },
-    );
-
-    email = "test.customer@gmail.com";
-  }
 
   /**
    * Whop's synthetic event currently uses domains such as:
@@ -403,7 +455,7 @@ if (!variantId) {
    * development.
    */
 
-  if (email.endsWith(".example")) {
+  if (email?.endsWith(".example")) {
     const allowFakeCustomer =
       process.env.DEV_ALLOW_FAKE_CUSTOMER === "true";
 
@@ -558,20 +610,30 @@ const shippingLastName =
      * Create idempotency/order mapping record BEFORE
      * creating the Shopify order.
      */
-    await createWhopOrderRecord({
-      whopPaymentId: paymentId,
+    if (isRetry) {
+      await retryWhopOrderRecord(paymentId);
+    } else {
+      await createWhopOrderRecord({
+        whopPaymentId: paymentId,
 
-      whopUserId:
-        payment.user?.id ?? undefined,
+        whopUserId:
+          payment.user?.id ?? undefined,
 
-      whopProductId:
-        productId,
+        whopProductId:
+          productId,
 
-      whopPlanId:
-        payment.plan?.id ?? undefined,
-    });
+        whopPlanId:
+          payment.plan?.id ?? undefined,
+      });
+    }
 
     orderRecordCreated = true;
+
+    const quantity =
+      extractQuantityFromMetadata(payment.metadata) ??
+      extractQuantityFromMetadata(payment.plan?.metadata) ??
+      extractQuantityFromMetadata(payment.product?.metadata) ??
+      1;
 
     /**
      * Create Shopify Draft Order and immediately complete
@@ -581,9 +643,6 @@ const shippingLastName =
       admin,
       variantId,
       email,
-
-      firstName: shippingFirstName,
-      lastName: shippingLastName,
 
       shippingAddress: {
         firstName: shippingFirstName,
@@ -609,7 +668,7 @@ const shippingLastName =
           undefined,
       },
 
-      quantity: 1,
+      quantity,
       whopPaymentId: paymentId,
       whopTotal: payment.total,
       whopCurrency: payment.currency,

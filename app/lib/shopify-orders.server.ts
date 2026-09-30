@@ -22,9 +22,7 @@ type ShippingAddress = {
 type CreatePaidShopifyOrderParams = {
   admin: ShopifyAdminClient;
   variantId: string;
-  email: string;
-  firstName: string;
-  lastName: string;
+  email?: string;
   shippingAddress: ShippingAddress;
   quantity?: number;
   whopPaymentId?: string;
@@ -77,7 +75,14 @@ export async function createPaidShopifyOrder({
   if (!variant?.id) {
     throw new Error(`Shopify variant not found: ${variantId}`);
   }
-
+      if (
+      !Number.isInteger(quantity) ||
+      quantity < 1
+    ) {
+    throw new Error(
+      `Invalid Shopify order quantity: ${quantity}`,
+    );
+  }
   if (whopTotal == null) {
     throw new Error("Whop payment total is missing");
   }
@@ -92,12 +97,11 @@ export async function createPaidShopifyOrder({
     );
   }
 
-  const shopifyBaseTotal =
-    Number(variant.price) * quantity;
+  const shopifyUnitPrice = Number(variant.price);
 
   const whopPaid = Number(whopTotal);
 
-  if (!Number.isFinite(shopifyBaseTotal)) {
+  if (!Number.isFinite(shopifyUnitPrice)) {
     throw new Error("Invalid Shopify variant price");
   }
 
@@ -105,18 +109,34 @@ export async function createPaidShopifyOrder({
     throw new Error("Invalid Whop payment total");
   }
 
-  if (whopPaid > shopifyBaseTotal) {
+  const shopifyUnitPriceCents = Math.round(
+    shopifyUnitPrice * 100,
+  );
+
+  const whopPaidCents = Math.round(whopPaid * 100);
+
+  if (whopPaidCents < 0) {
     throw new Error(
-      `Whop payment ${whopPaid} is greater than Shopify price ${shopifyBaseTotal}`,
+      "Whop payment total cannot be negative",
     );
   }
 
-  const discountAmount = Number(
+  const shopifyBaseTotalCents =
+    shopifyUnitPriceCents * quantity;
+
+  if (whopPaidCents > shopifyBaseTotalCents) {
+    throw new Error(
+      `Whop payment ${whopPaid} is greater than Shopify price ${
+        shopifyBaseTotalCents / 100
+      }`,
+    );
+  }
+
+  const discountAmount =
     Math.max(
       0,
-      shopifyBaseTotal - whopPaid,
-    ).toFixed(2),
-  );
+      shopifyBaseTotalCents - whopPaidCents,
+    ) / 100;
 
   const lineItem: Record<string, unknown> = {
     variantId,
@@ -132,6 +152,32 @@ export async function createPaidShopifyOrder({
       valueType: "FIXED_AMOUNT",
       value: discountAmount,
     };
+  }
+
+  const draftOrderInput: Record<string, unknown> = {
+    lineItems: [lineItem],
+
+    shippingAddress: {
+      firstName: shippingAddress.firstName,
+      lastName: shippingAddress.lastName,
+      address1: shippingAddress.address1,
+      address2: shippingAddress.address2,
+      city: shippingAddress.city,
+      province: shippingAddress.province,
+      zip: shippingAddress.zip,
+      countryCode: shippingAddress.countryCode,
+      phone: shippingAddress.phone,
+    },
+
+    tags: ["Whop"],
+
+    note: whopPaymentId
+      ? `Paid via Whop. Payment ID: ${whopPaymentId}`
+      : "Paid via Whop",
+  };
+
+  if (email) {
+    draftOrderInput.email = email;
   }
 
   // Create Draft Order
@@ -158,29 +204,7 @@ export async function createPaidShopifyOrder({
     }`,
     {
       variables: {
-        input: {
-          email,
-
-          lineItems: [lineItem],
-
-          shippingAddress: {
-            firstName: shippingAddress.firstName,
-            lastName: shippingAddress.lastName,
-            address1: shippingAddress.address1,
-            address2: shippingAddress.address2,
-            city: shippingAddress.city,
-            province: shippingAddress.province,
-            zip: shippingAddress.zip,
-            countryCode: shippingAddress.countryCode,
-            phone: shippingAddress.phone,
-          },
-
-          tags: ["Whop"],
-
-          note: whopPaymentId
-            ? `Paid via Whop. Payment ID: ${whopPaymentId}`
-            : "Paid via Whop",
-        },
+        input: draftOrderInput,
       },
     },
   );
