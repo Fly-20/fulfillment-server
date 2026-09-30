@@ -30,6 +30,69 @@ type CreatePaidShopifyOrderParams = {
   whopCurrency?: string | null;
 };
 
+type DraftOrderUserError = {
+  field?: string[] | null;
+  message?: string | null;
+};
+
+type DraftOrderCreateResult = {
+  draftOrder?: {
+    id?: string | null;
+    name?: string | null;
+    status?: string | null;
+    totalPriceSet?: {
+      shopMoney?: {
+        amount?: string | null;
+        currencyCode?: string | null;
+      } | null;
+    } | null;
+  } | null;
+  userErrors?: DraftOrderUserError[] | null;
+};
+
+async function createDraftOrder(
+  admin: ShopifyAdminClient,
+  input: Record<string, unknown>,
+): Promise<DraftOrderCreateResult | undefined> {
+  const response = await admin.graphql(
+    `#graphql
+    mutation CreateDraftOrder($input: DraftOrderInput!) {
+      draftOrderCreate(input: $input) {
+        draftOrder {
+          id
+          name
+          status
+          totalPriceSet {
+            shopMoney {
+              amount
+              currencyCode
+            }
+          }
+        }
+        userErrors {
+          field
+          message
+        }
+      }
+    }`,
+    {
+      variables: {
+        input,
+      },
+    },
+  );
+
+  const json = await response.json();
+
+  if (json.errors?.length) {
+    throw new Error(
+      `Shopify GraphQL error: ${JSON.stringify(json.errors)}`,
+    );
+  }
+
+  return json.data?.draftOrderCreate;
+}
+
 export async function createPaidShopifyOrder({
   admin,
   variantId,
@@ -71,49 +134,62 @@ export async function createPaidShopifyOrder({
 
   const variant = variantJson.data?.productVariant;
   const shopCurrency = variantJson.data?.shop?.currencyCode;
-  
+
   if (!variant?.id) {
-    throw new Error(`Shopify variant not found: ${variantId}`);
+    throw new Error(
+      `Shopify variant not found: ${variantId}`,
+    );
   }
-      if (
-      !Number.isInteger(quantity) ||
-      quantity < 1
-    ) {
+
+  if (
+    !Number.isInteger(quantity) ||
+    quantity < 1
+  ) {
     throw new Error(
       `Invalid Shopify order quantity: ${quantity}`,
     );
   }
+
   if (whopTotal == null) {
-    throw new Error("Whop payment total is missing");
+    throw new Error(
+      "Whop payment total is missing",
+    );
   }
 
   if (
     whopCurrency &&
     shopCurrency &&
-    whopCurrency.toUpperCase() !== shopCurrency.toUpperCase()
+    whopCurrency.toUpperCase() !==
+      shopCurrency.toUpperCase()
   ) {
     throw new Error(
       `Currency mismatch: Whop ${whopCurrency} vs Shopify ${shopCurrency}`,
     );
   }
 
-  const shopifyUnitPrice = Number(variant.price);
+  const shopifyUnitPrice = Number(
+    variant.price,
+  );
 
   const whopPaid = Number(whopTotal);
 
   if (!Number.isFinite(shopifyUnitPrice)) {
-    throw new Error("Invalid Shopify variant price");
+    throw new Error(
+      "Invalid Shopify variant price",
+    );
   }
 
   if (!Number.isFinite(whopPaid)) {
-    throw new Error("Invalid Whop payment total");
+    throw new Error(
+      "Invalid Whop payment total",
+    );
   }
 
-  const shopifyUnitPriceCents = Math.round(
-    shopifyUnitPrice * 100,
-  );
+  const shopifyUnitPriceCents =
+    Math.round(shopifyUnitPrice * 100);
 
-  const whopPaidCents = Math.round(whopPaid * 100);
+  const whopPaidCents =
+    Math.round(whopPaid * 100);
 
   if (whopPaidCents < 0) {
     throw new Error(
@@ -124,7 +200,10 @@ export async function createPaidShopifyOrder({
   const shopifyBaseTotalCents =
     shopifyUnitPriceCents * quantity;
 
-  if (whopPaidCents > shopifyBaseTotalCents) {
+  if (
+    whopPaidCents >
+    shopifyBaseTotalCents
+  ) {
     throw new Error(
       `Whop payment ${whopPaid} is greater than Shopify price ${
         shopifyBaseTotalCents / 100
@@ -135,10 +214,14 @@ export async function createPaidShopifyOrder({
   const discountAmount =
     Math.max(
       0,
-      shopifyBaseTotalCents - whopPaidCents,
+      shopifyBaseTotalCents -
+        whopPaidCents,
     ) / 100;
 
-  const lineItem: Record<string, unknown> = {
+  const lineItem: Record<
+    string,
+    unknown
+  > = {
     variantId,
     quantity,
   };
@@ -154,19 +237,31 @@ export async function createPaidShopifyOrder({
     };
   }
 
-  const draftOrderInput: Record<string, unknown> = {
+  const draftOrderInput: Record<
+    string,
+    unknown
+  > = {
     lineItems: [lineItem],
 
     shippingAddress: {
-      firstName: shippingAddress.firstName,
-      lastName: shippingAddress.lastName,
-      address1: shippingAddress.address1,
-      address2: shippingAddress.address2,
-      city: shippingAddress.city,
-      province: shippingAddress.province,
-      zip: shippingAddress.zip,
-      countryCode: shippingAddress.countryCode,
-      phone: shippingAddress.phone,
+      firstName:
+        shippingAddress.firstName,
+      lastName:
+        shippingAddress.lastName,
+      address1:
+        shippingAddress.address1,
+      address2:
+        shippingAddress.address2,
+      city:
+        shippingAddress.city,
+      province:
+        shippingAddress.province,
+      zip:
+        shippingAddress.zip,
+      countryCode:
+        shippingAddress.countryCode,
+      phone:
+        shippingAddress.phone,
     },
 
     tags: ["Whop"],
@@ -180,39 +275,12 @@ export async function createPaidShopifyOrder({
     draftOrderInput.email = email;
   }
 
-  // Create Draft Order
-  const createResponse = await admin.graphql(
-    `#graphql
-    mutation CreateDraftOrder($input: DraftOrderInput!) {
-      draftOrderCreate(input: $input) {
-        draftOrder {
-          id
-          name
-          status
-          totalPriceSet {
-            shopMoney {
-              amount
-              currencyCode
-            }
-          }
-        }
-        userErrors {
-          field
-          message
-        }
-      }
-    }`,
-    {
-      variables: {
-        input: draftOrderInput,
-      },
-    },
-  );
-
-  const createJson = await createResponse.json();
-
-  const createResult =
-    createJson.data?.draftOrderCreate;
+  // First attempt: create draft order with email if available
+  let createResult =
+    await createDraftOrder(
+      admin,
+      draftOrderInput,
+    );
 
   if (!createResult) {
     throw new Error(
@@ -220,7 +288,51 @@ export async function createPaidShopifyOrder({
     );
   }
 
-  if (createResult.userErrors?.length) {
+  // If Shopify specifically rejects the email,
+  // retry once without the email.
+  const hasEmailError =
+    Boolean(email) &&
+    Boolean(
+      createResult.userErrors?.some(
+        (error) =>
+          Array.isArray(error.field) &&
+          error.field.includes("email"),
+      ),
+    );
+
+  if (hasEmailError) {
+    console.warn(
+      "Shopify rejected customer email; retrying draft order without email",
+      {
+        whopPaymentId,
+        email,
+        errors:
+          createResult.userErrors,
+      },
+    );
+
+    const retryInput = {
+      ...draftOrderInput,
+    };
+
+    delete retryInput.email;
+
+    createResult =
+      await createDraftOrder(
+        admin,
+        retryInput,
+      );
+
+    if (!createResult) {
+      throw new Error(
+        "Shopify did not return draftOrderCreate on email fallback retry",
+      );
+    }
+  }
+
+  if (
+    createResult.userErrors?.length
+  ) {
     throw new Error(
       `Draft order creation failed: ${JSON.stringify(
         createResult.userErrors,
@@ -228,7 +340,8 @@ export async function createPaidShopifyOrder({
     );
   }
 
-  const draftOrder = createResult.draftOrder;
+  const draftOrder =
+    createResult.draftOrder;
 
   if (!draftOrder?.id) {
     throw new Error(
@@ -237,38 +350,40 @@ export async function createPaidShopifyOrder({
   }
 
   // Complete Draft Order as paid
-  const completeResponse = await admin.graphql(
-    `#graphql
-    mutation CompleteDraftOrder($id: ID!) {
-      draftOrderComplete(id: $id) {
-        draftOrder {
-          id
-          status
-          order {
+  const completeResponse =
+    await admin.graphql(
+      `#graphql
+      mutation CompleteDraftOrder($id: ID!) {
+        draftOrderComplete(id: $id) {
+          draftOrder {
             id
-            name
-            displayFinancialStatus
-            displayFulfillmentStatus
+            status
+            order {
+              id
+              name
+              displayFinancialStatus
+              displayFulfillmentStatus
+            }
+          }
+          userErrors {
+            field
+            message
           }
         }
-        userErrors {
-          field
-          message
-        }
-      }
-    }`,
-    {
-      variables: {
-        id: draftOrder.id,
+      }`,
+      {
+        variables: {
+          id: draftOrder.id,
+        },
       },
-    },
-  );
+    );
 
   const completeJson =
     await completeResponse.json();
 
   const completeResult =
-    completeJson.data?.draftOrderComplete;
+    completeJson.data
+      ?.draftOrderComplete;
 
   if (!completeResult) {
     throw new Error(
@@ -276,7 +391,9 @@ export async function createPaidShopifyOrder({
     );
   }
 
-  if (completeResult.userErrors?.length) {
+  if (
+    completeResult.userErrors?.length
+  ) {
     throw new Error(
       `Draft order completion failed: ${JSON.stringify(
         completeResult.userErrors,
@@ -285,7 +402,8 @@ export async function createPaidShopifyOrder({
   }
 
   const order =
-    completeResult.draftOrder?.order;
+    completeResult.draftOrder
+      ?.order;
 
   if (!order?.id) {
     throw new Error(
@@ -298,11 +416,11 @@ export async function createPaidShopifyOrder({
       id: draftOrder.id,
       name: draftOrder.name,
       total:
-        draftOrder.totalPriceSet?.shopMoney
-          ?.amount,
+        draftOrder.totalPriceSet
+          ?.shopMoney?.amount,
       currency:
-        draftOrder.totalPriceSet?.shopMoney
-          ?.currencyCode,
+        draftOrder.totalPriceSet
+          ?.shopMoney?.currencyCode,
     },
 
     order: {
